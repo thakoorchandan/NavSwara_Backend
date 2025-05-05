@@ -7,21 +7,18 @@ const addProduct = async (req, res) => {
         const { name, description, price, category, subCategory, sizes, bestseller } = req.body;
         console.log(name, description, price, category, subCategory, sizes, bestseller);
 
-        const image1 = req.files.image1 && req.files.image1[0];
-        const image2 = req.files.image2 && req.files.image2[0];
-        const image3 = req.files.image3 && req.files.image3[0];
-        const image4 = req.files.image4 && req.files.image4[0];
+        // Collect all uploaded image files into an array
+        const images = req.files ? Object.values(req.files).flat() : [];
 
-        const images = [image1, image2, image3, image4].filter((item) => item !== undefined);
-
+        // Upload all images to Cloudinary and get their URLs
         const imagesUrl = await Promise.all(
-            images.map(async (item) => {
+            images.map(async (file) => {
                 try {
-                    let result = await cloudinary.uploader.upload(item.path, { resource_type: 'image' });
+                    const result = await cloudinary.uploader.upload(file.path, { resource_type: "image" });
                     return result.secure_url;
                 } catch (error) {
-                    console.error(`Failed to upload ${item.filename}:`, error.message);
-                    throw new Error('Image upload failed');
+                    console.error(`Failed to upload ${file.originalname || file.filename}:`, error.message);
+                    throw new Error("Image upload failed");
                 }
             })
         );
@@ -32,7 +29,7 @@ const addProduct = async (req, res) => {
             category,
             price: Number(price),
             subCategory,
-            bestSeller: bestseller === 'true' ? true : false,
+            bestSeller: bestseller === 'true',
             sizes: JSON.parse(sizes),
             image: imagesUrl,
             date: Date.now()
@@ -42,12 +39,12 @@ const addProduct = async (req, res) => {
         const product = new productModel(productData);
         await product.save();
 
-        res.json({ success: true, message: "Product Added" }); // Only this response will be sent
+        res.json({ success: true, message: "Product Added" });
     } catch (error) {
         console.log(error);
         res.json({ success: false, message: error.message });
     }
-};
+}
 
 
 //functions for list product
