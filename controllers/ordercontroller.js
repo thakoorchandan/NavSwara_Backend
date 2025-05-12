@@ -2,11 +2,11 @@
 
 import Order from "../models/ordermodel.js";
 import User from "../models/usermodel.js";
+import Product from "../models/productModel.js";
 import Stripe from "stripe";
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import { clearCart } from "./cartcontroller.js";
-
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const razorpay = new Razorpay({
@@ -17,57 +17,80 @@ const razorpay = new Razorpay({
 const CURRENCY = "inr";
 const SHIPPING_CHARGE = 10;
 
-// ─── Helper to build the array of OrderItem sub‐docs ───────────────────────
-function buildItems(items) {
-  return items.map(item => ({
-    product:    item.product,
-    name:       item.name,
-    quantity:   item.quantity,
-    unitPrice:  item.unitPrice,
-    totalPrice: item.totalPrice,
-  }));
+// ─── Build order items with snapshot ───────────────────────────────
+async function buildItems(items) {
+  const result = [];
+  for (const item of items) {
+    const prod = await Product.findById(item.product);
+    if (!prod) throw new Error(`Product ${item.product} not found`);
+
+    result.push({
+      product: prod._id,
+      name: prod.name,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      totalPrice: item.totalPrice,
+      selectedSize: item.selectedSize,
+      selectedColor: item.selectedColor,
+      productSnapshot: {
+        coverImage: prod.coverImage,
+        images: prod.images,
+        description: prod.description,
+        brand: prod.brand,
+        tags: prod.tags,
+        colorOptions: prod.color,
+        sizeOptions: prod.sizes,
+      },
+    });
+  }
+  return result;
 }
 
-// ─── COD ────────────────────────────────────────────────────────────────
+// ─── COD ─────────────────────────────────────────────────────────────
 export const placeOrderCOD = async (req, res) => {
   try {
     const userId = req.user.id;
     const { shippingAddress, items } = req.body;
-
     if (!shippingAddress || !items?.length) {
-      return res.status(400).json({ success: false, message: "Missing address or items" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing address or items" });
     }
 
-    const orderItems   = buildItems(items);
+    const orderItems = await buildItems(items);
     const itemsSubtotal = orderItems.reduce((sum, i) => sum + i.totalPrice, 0);
-    const totalAmount   = itemsSubtotal + SHIPPING_CHARGE;
+    const totalAmount = itemsSubtotal + SHIPPING_CHARGE;
 
     const order = await Order.create({
-      user:            userId,
+      user: userId,
       shippingAddress,
-      items:           orderItems,
+      items: orderItems,
       itemsSubtotal,
-      shippingCharge:  SHIPPING_CHARGE,
-      taxAmount:       0,
-      discount:        0,
+      shippingCharge: SHIPPING_CHARGE,
+      taxAmount: 0,
+      discount: 0,
       totalAmount,
       paymentDetail: {
-        method:      "COD",
-        currency:    CURRENCY,
-      }
+        method: "COD",
+        currency: CURRENCY,
+      },
     });
 
-    // clear cart
     await User.findByIdAndUpdate(userId, { cartData: {} });
     await clearCart(userId);
-    res.json({ success: true, message: "Order placed (COD)", orderId: order._id });
+
+    res.json({
+      success: true,
+      message: "Order placed (COD)",
+      orderId: order._id,
+    });
   } catch (err) {
     console.error("placeOrderCOD:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// ─── Stripe ─────────────────────────────────────────────────────────────
+// ─── Stripe ──────────────────────────────────────────────────────────
 export const placeOrderStripe = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -75,44 +98,46 @@ export const placeOrderStripe = async (req, res) => {
     const origin = req.headers.origin;
 
     if (!shippingAddress || !items?.length) {
-      return res.status(400).json({ success: false, message: "Missing address or items" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing address or items" });
     }
 
-    const orderItems   = buildItems(items);
+    const orderItems = await buildItems(items);
     const itemsSubtotal = orderItems.reduce((sum, i) => sum + i.totalPrice, 0);
-    const totalAmount   = itemsSubtotal + SHIPPING_CHARGE;
+    const totalAmount = itemsSubtotal + SHIPPING_CHARGE;
 
     const order = await Order.create({
-      user:            userId,
+      user: userId,
       shippingAddress,
-      items:           orderItems,
+      items: orderItems,
       itemsSubtotal,
-      shippingCharge:  SHIPPING_CHARGE,
-      taxAmount:       0,
-      discount:        0,
+      shippingCharge: SHIPPING_CHARGE,
+      taxAmount: 0,
+      discount: 0,
       totalAmount,
       paymentDetail: {
-        method:   "Stripe",
-        currency: CURRENCY
-      }
+        method: "Stripe",
+        currency: CURRENCY,
+      },
     });
 
     // build Stripe line_items
-    const line_items = orderItems.map(i => ({
+    const line_items = orderItems.map((i) => ({
       price_data: {
         currency: CURRENCY,
         product_data: { name: i.name },
-        unit_amount: i.unitPrice * 100
+        unit_amount: i.unitPrice * 100,
       },
-      quantity: i.quantity
+      quantity: i.quantity,
     }));
     line_items.push({
       price_data: {
         currency: CURRENCY,
         product_data: { name: "Shipping" },
-        unit_amount: SHIPPING_CHARGE * 100
+        unit_amount: SHIPPING_CHARGE * 100,
       },
-      quantity: 1
+      quantity: 1,
     });
 
     const session = await stripe.checkout.sessions.create({
@@ -120,7 +145,7 @@ export const placeOrderStripe = async (req, res) => {
       line_items,
       mode: "payment",
       success_url: `${origin}/verify?orderId=${order._id}&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url:  `${origin}/cart`
+      cancel_url: `${origin}/cart`,
     });
 
     order.paymentDetail.stripeSessionId = session.id;
@@ -133,19 +158,22 @@ export const placeOrderStripe = async (req, res) => {
   }
 };
 
-// ─── Verify Stripe ───────────────────────────────────────────────────────
+// ─── Verify Stripe ───────────────────────────────────────────────────
 export const verifyStripe = async (req, res) => {
   try {
     const { orderId, session_id } = req.body;
     const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    if (!order)
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found" });
 
     const session = await stripe.checkout.sessions.retrieve(session_id);
     if (session.payment_status === "paid") {
       order.paymentDetail = {
         ...order.paymentDetail.toObject(),
         stripePaymentIntentId: session.payment_intent,
-        transactionId:        session.payment_intent,
+        transactionId: session.payment_intent,
       };
       order.status = "Processing";
       await order.save();
@@ -153,46 +181,49 @@ export const verifyStripe = async (req, res) => {
       await clearCart(order.user);
       return res.json({ success: true, message: "Payment confirmed" });
     }
-    return res.status(400).json({ success: false, message: "Payment not completed" });
+    return res
+      .status(400)
+      .json({ success: false, message: "Payment not completed" });
   } catch (err) {
     console.error("verifyStripe:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
-// ─── Razorpay ───────────────────────────────────────────────────────────
+// ─── Razorpay ────────────────────────────────────────────────────────
 export const placeOrderRazorpay = async (req, res) => {
   try {
     const userId = req.user.id;
     const { shippingAddress, items } = req.body;
-
     if (!shippingAddress || !items?.length) {
-      return res.status(400).json({ success: false, message: "Missing address or items" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing address or items" });
     }
 
-    const orderItems   = buildItems(items);
+    const orderItems = await buildItems(items);
     const itemsSubtotal = orderItems.reduce((sum, i) => sum + i.totalPrice, 0);
-    const totalAmount   = itemsSubtotal + SHIPPING_CHARGE;
+    const totalAmount = itemsSubtotal + SHIPPING_CHARGE;
 
     const order = await Order.create({
-      user:            userId,
+      user: userId,
       shippingAddress,
-      items:           orderItems,
+      items: orderItems,
       itemsSubtotal,
-      shippingCharge:  SHIPPING_CHARGE,
-      taxAmount:       0,
-      discount:        0,
+      shippingCharge: SHIPPING_CHARGE,
+      taxAmount: 0,
+      discount: 0,
       totalAmount,
       paymentDetail: {
-        method:   "Razorpay",
-        currency: CURRENCY
-      }
+        method: "Razorpay",
+        currency: CURRENCY,
+      },
     });
 
     const rOrder = await razorpay.orders.create({
-      amount:   totalAmount * 100,
+      amount: totalAmount * 100,
       currency: CURRENCY.toUpperCase(),
-      receipt:  order._id.toString()
+      receipt: order._id.toString(),
     });
 
     order.paymentDetail.razorpayOrderId = rOrder.id;
@@ -205,26 +236,36 @@ export const placeOrderRazorpay = async (req, res) => {
   }
 };
 
-// ─── Verify Razorpay ─────────────────────────────────────────────────────
+// ─── Verify Razorpay ─────────────────────────────────────────────────
 export const verifyRazorpay = async (req, res) => {
   try {
-    const { orderId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+    const {
+      orderId,
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+    } = req.body;
     const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    if (!order)
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found" });
 
-    const expectedSignature =
-      crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-            .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-            .digest("hex");
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest("hex");
     if (expectedSignature !== razorpay_signature) {
-      return res.status(400).json({ success: false, message: "Invalid signature" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid signature" });
     }
 
     order.paymentDetail = {
       ...order.paymentDetail.toObject(),
       razorpayPaymentId: razorpay_payment_id,
       razorpaySignature: razorpay_signature,
-      transactionId:     razorpay_payment_id
+      transactionId: razorpay_payment_id,
     };
     order.status = "Processing";
     await order.save();
@@ -237,7 +278,7 @@ export const verifyRazorpay = async (req, res) => {
   }
 };
 
-// ─── Admin: list all orders ─────────────────────────────────────────────
+// ─── Admin: list all orders ─────────────────────────────────────────
 export const allOrders = async (req, res) => {
   try {
     const orders = await Order.find({}).populate("user", "email name");
@@ -248,7 +289,7 @@ export const allOrders = async (req, res) => {
   }
 };
 
-// ─── User: get own orders ───────────────────────────────────────────────
+// ─── User: get own orders ───────────────────────────────────────────
 export const userOrders = async (req, res) => {
   try {
     const orders = await Order.find({ user: req.user.id });
@@ -259,12 +300,19 @@ export const userOrders = async (req, res) => {
   }
 };
 
-// ─── Admin: update status ───────────────────────────────────────────────
+// ─── Admin: update status ───────────────────────────────────────────
 export const updateStatus = async (req, res) => {
   try {
     const { orderId, status } = req.body;
-    const order = await Order.findByIdAndUpdate(orderId, { status }, { new: true });
-    if (!order) return res.status(404).json({ success: false, message: "Order not found" });
+    const order = await Order.findByIdAndUpdate(
+      orderId,
+      { status },
+      { new: true }
+    );
+    if (!order)
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found" });
     res.json({ success: true, message: "Status updated", order });
   } catch (err) {
     console.error("updateStatus:", err);
