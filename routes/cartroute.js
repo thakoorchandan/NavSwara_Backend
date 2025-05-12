@@ -1,12 +1,28 @@
-import express from 'express'
-import { addToCart, getUserCart, updateCart } from '../controllers/cartcontroller.js'
-import authUser from '../middleware/auth.js'
+import express from "express";
+import auth from "../middleware/auth.js";
+import {
+  getUserCart,
+  addToCart,
+  updateCart,
+  removeFromCart,
+  clearCart
+} from "../controllers/cartcontroller.js";
 
-const cartroute = express.Router()
+const router = express.Router();
 
-cartroute.post('/get', authUser, getUserCart)
-cartroute.post('/add', authUser, addToCart)
-cartroute.post('/update', authUser, updateCart)
+// fetch current cart
+router.post("/get",    auth, getUserCart);
+// add one qty of itemId/size
+router.post("/add",    auth, addToCart);
+// set exact quantity (or remove if ≤0)
+router.post("/update", auth, updateCart);
+// remove entire product entry
+router.post("/remove", auth, removeFromCart);
 
-export default cartroute
+// (optional) clear everything
+router.post("/clear",  auth, async (req,res)=>{
+  await clearCart(req.user.id);
+  res.json({ success:true });
+});
 
+export default router;
