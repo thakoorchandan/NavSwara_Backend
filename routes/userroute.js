@@ -5,7 +5,7 @@ import {
   forgotPassword, verifyResetOTP, resetPassword,
   getAddresses, addAddress, updateAddress, deleteAddress,
   getPaymentMethods, addPaymentMethod, deletePaymentMethod,
-  getMyOrders, getMe
+  getMyOrders, getMe, adminLogin
 } from "../controllers/usercontroller.js";
 import  authUser  from "../middleware/auth.js";
 
@@ -32,5 +32,7 @@ router.delete("/me/payments/:index", authUser, deletePaymentMethod);
 
 // ─── ORDERS ───────────────────────
 router.get("/me/orders", authUser, getMyOrders);
+
+router.post('/admin', adminLogin)
 
 export default router;
