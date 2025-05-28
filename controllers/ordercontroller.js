@@ -281,24 +281,37 @@ export const verifyRazorpay = async (req, res) => {
 // ─── Admin: list all orders ─────────────────────────────────────────
 export const allOrders = async (req, res) => {
   try {
-    const orders = await Order.find({}).populate("user", "email name");
-    res.json({ success: true, orders });
+    const { page = 1, limit = 20 } = req.query;
+    const total = await Order.countDocuments();
+    const orders = await Order.find({})
+      .populate("user", "email name")
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * Number(limit))
+      .limit(Number(limit));
+    res.json({ success: true, total, page: Number(page), pages: Math.ceil(total / limit), orders });
   } catch (err) {
     console.error("allOrders:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
 
+
 // ─── User: get own orders ───────────────────────────────────────────
 export const userOrders = async (req, res) => {
   try {
-    const orders = await Order.find({ user: req.user.id });
-    res.json({ success: true, orders });
+    const { page = 1, limit = 20 } = req.query;
+    const total = await Order.countDocuments({ user: req.user.id });
+    const orders = await Order.find({ user: req.user.id })
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * Number(limit))
+      .limit(Number(limit));
+    res.json({ success: true, total, page: Number(page), pages: Math.ceil(total / limit), orders });
   } catch (err) {
     console.error("userOrders:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
 
 // ─── Admin: update status ───────────────────────────────────────────
 export const updateStatus = async (req, res) => {

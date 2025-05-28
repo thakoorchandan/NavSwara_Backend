@@ -166,6 +166,19 @@ export const addAddress = async (req, res) => {
   }
 };
 
+export const setDefaultAddress = async (req, res) => {
+  const index = Number(req.params.index);
+  try {
+    const user = await User.findById(req.user.id);
+    user.addresses.forEach((a, i) => a.isDefault = i === index);
+    await user.save();
+    res.json({ success: true, addresses: user.addresses });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+
 export const updateAddress = async (req, res) => {
   const i = Number(req.params.index);
   try {
@@ -257,8 +270,11 @@ export const getMyOrders = async (req, res) => {
 
 export const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select("name email createdAt");
-    if (!user) return res.status(404).json({ success: false, message: "Not found" });
+    const user = await User.findById(req.user.id).select(
+      "name email createdAt"
+    );
+    if (!user)
+      return res.status(404).json({ success: false, message: "Not found" });
     res.json({ success: true, user });
   } catch (err) {
     console.error("getMe:", err);
@@ -266,28 +282,64 @@ export const getMe = async (req, res) => {
   }
 };
 
-
-export const adminLogin = async (req,res) =>{
-
+export const adminLogin = async (req, res) => {
   try {
-      
-      const{email,password} = req.body
-
-      console.log(email, password);
-
-      if (email === process.env.ADMIN_EMAIL && password === process.env.ADMIN_PASSWORD) {
-
-          const token = jwt.sign(email+password,process.env.JWT_SECRET)
-          res.json({success:true,token})
-          
-      }else{
-          res.json({success:false, message:"Invalid Credentials"})
-      }
+    const { email, password } = req.body;
+    if (
+      email === process.env.ADMIN_EMAIL &&
+      password === process.env.ADMIN_PASSWORD
+    ) {
+      // Use an object as payload
+      const token = jwt.sign({ admin: true, email }, process.env.JWT_SECRET, {
+        expiresIn: "7d",
+      });
+      res.json({ success: true, token });
+    } else {
+      res.json({ success: false, message: "Invalid Credentials" });
+    }
   } catch (error) {
-
-      console.log(error);
-      res.json({success:false, message:error.message})
-      
+    console.log(error);
+    res.json({ success: false, message: error.message });
   }
+};
 
-}
+// ─── WISHLIST ───────────────────────────────────────────────────────
+
+// GET user's wishlist
+export const getWishlist = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).populate('wishlist');
+    res.json({ success: true, wishlist: user.wishlist || [] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ADD to wishlist
+export const addToWishlist = async (req, res) => {
+  try {
+    const { productId } = req.body;
+    const user = await User.findById(req.user.id);
+    if (!user.wishlist.includes(productId)) {
+      user.wishlist.push(productId);
+      await user.save();
+    }
+    res.json({ success: true, wishlist: user.wishlist });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// REMOVE from wishlist
+export const removeFromWishlist = async (req, res) => {
+  try {
+    const { productId } = req.body;
+    const user = await User.findById(req.user.id);
+    user.wishlist = user.wishlist.filter(id => id.toString() !== productId);
+    await user.save();
+    res.json({ success: true, wishlist: user.wishlist });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+

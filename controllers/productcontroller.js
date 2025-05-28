@@ -1,7 +1,8 @@
-// backend/controllers/productcontroller.js
-
+import fs from "fs";
+import csvParser from "csv-parser";
 import { v2 as cloudinary } from "cloudinary";
 import Product from "../models/productModel.js";
+import Review from "../models/reviewModel.js";
 
 /**
  * POST /api/product/add
@@ -43,13 +44,14 @@ export const addProduct = async (req, res) => {
     const coverRes = await cloudinary.uploader.upload(coverFile.path, {
       resource_type: "image",
     });
-
+    fs.unlinkSync(coverFile.path);
     // upload other images
     const images = await Promise.all(
       otherFiles.map(async (file) => {
         const r = await cloudinary.uploader.upload(file.path, {
           resource_type: "image",
         });
+        fs.unlinkSync(file.path);
         return { url: r.secure_url, alt: file.originalname || "" };
       })
     );
@@ -171,15 +173,17 @@ export const singleProduct = async (req, res) => {
         .status(404)
         .json({ success: false, message: "Product not found" });
     }
-
     const relatedProducts = await Product.find({
       _id: { $ne: productId },
       tags: { $in: product.tags },
     })
       .limit(10)
       .lean();
-
-    res.json({ success: true, product, relatedProducts });
+    const reviews = await Review.find({ product: productId }).populate(
+      "user",
+      "name"
+    );
+    res.json({ success: true, product, relatedProducts, reviews });
   } catch (error) {
     console.error("singleProduct error:", error);
     res.status(500).json({ success: false, message: error.message });
@@ -263,6 +267,7 @@ export const updateProduct = async (req, res) => {
       const r = await cloudinary.uploader.upload(newCover.path, {
         resource_type: "image",
       });
+       fs.unlinkSync(newCover.path);
       coverImage = { url: r.secure_url, alt: newCover.originalname || "" };
     }
 
@@ -272,6 +277,7 @@ export const updateProduct = async (req, res) => {
           const r = await cloudinary.uploader.upload(file.path, {
             resource_type: "image",
           });
+          fs.unlinkSync(file.path);
           return { url: r.secure_url, alt: file.originalname || "" };
         })
       );
@@ -293,6 +299,23 @@ export const updateProduct = async (req, res) => {
     res.json({ success: true, message: "Product updated", product: updated });
   } catch (err) {
     console.error("updateProduct error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const bulkUploadProducts = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: "No CSV file uploaded." });
+    const products = [];
+    fs.createReadStream(req.file.path)
+      .pipe(csvParser())
+      .on("data", (row) => products.push(row))
+      .on("end", async () => {
+        await Product.insertMany(products);
+        fs.unlinkSync(req.file.path);
+        res.json({ success: true, count: products.length });
+      });
+  } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
 };

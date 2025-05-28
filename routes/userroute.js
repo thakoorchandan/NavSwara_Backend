@@ -5,7 +5,7 @@ import {
   forgotPassword, verifyResetOTP, resetPassword,
   getAddresses, addAddress, updateAddress, deleteAddress,
   getPaymentMethods, addPaymentMethod, deletePaymentMethod,
-  getMyOrders, getMe, adminLogin
+  getMyOrders, getMe, adminLogin, getWishlist, addToWishlist, removeFromWishlist
 } from "../controllers/usercontroller.js";
 import  authUser  from "../middleware/auth.js";
 
@@ -17,6 +17,11 @@ router.post("/login",           loginUser);
 router.post("/forgot-password", forgotPassword);
 router.post("/verify-otp",      verifyResetOTP);
 router.post("/reset-password",  resetPassword);
+
+// ─── WISHLIST ─────────────────────────
+router.get("/wishlist", authUser, getWishlist);
+router.post("/wishlist/add", authUser, addToWishlist);
+router.post("/wishlist/remove", authUser, removeFromWishlist);
 
 // ─── ADDRESSES ───────────────────
 router.get("/me", authUser, getMe);

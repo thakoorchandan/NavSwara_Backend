@@ -14,6 +14,7 @@ const addressSchema = new mongoose.Schema(
     postalCode: { type: String, required: true },
     country: { type: String, required: true },
     phone: { type: String },
+    isDefault: { type: Boolean, default: false },
   },
   { _id: false }
 );
